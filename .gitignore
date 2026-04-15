@@ -1,0 +1,15 @@
+# PlatformIO — se regenera automáticamente, no subir (son cientos de MB)
+firmware/.pio/
+
+# Python
+python/__pycache__/
+python/*.pyc
+python/venv/
+python/.env
+
+# VS Code (el workspace sí se sube, esto es solo configuración local)
+.vscode/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

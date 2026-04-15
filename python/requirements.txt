@@ -1,0 +1,6 @@
+
+# Librerías necesarias de python para ejecutar el script.
+# Librerías como tkinter, vienen por defecto en python
+# Solo será necesaria la instalación de pyserial para la comunicación serie con la placa.
+
+pip install pyserial
