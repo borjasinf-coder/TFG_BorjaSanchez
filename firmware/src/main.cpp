@@ -12,19 +12,16 @@ Adafruit_MCP4725 dacV;   // Vprog
 Adafruit_MCP4725 dacI;   // Iprog
 
 // ================== PINES ==================
-const int adcVmon = 34;     // Vmon (fuente)
+const int adcVmon = 34;     // V mon (fuente)
 const int adcI = 35;     // I fugas (shunt)
 const int relePin = 26;    // Relé
 
 // ================== CONSTANTES ==================
 const float VREF = 3.3;     // ADC y DAC trabajan a 3.3V
-const float DAC_MAX = 4095.0;
-
-// Ganancia del amplificador de corriente
-const float GAIN = 40.0;
-
-// Shunt
-const float R_SHUNT = 1000.0; // 1kΩ
+const float DAC_MAX = 4095.0; // DAC externo de 12 bits (4096 valores)
+const float ADC_MAX = 4095.0; // ADC del ESP32 de 12 bits (4096 valores)
+const float GAIN = 40.0; // Ganancia del amplificador de corriente
+const float R_SHUNT = 1000.0; // Shunt 1kΩ
 
 // ================== SETUP ==================
 void setup() {
@@ -35,7 +32,7 @@ void setup() {
 
   // Inicializar DACs
   dacV.begin(0x60); // A0 a GND
-  dacI.begin(0x61); // segundo DAC
+  dacI.begin(0x61); // segundo DAC, A0 a VREF
 
   pinMode(relePin, OUTPUT);
   digitalWrite(relePin, LOW);
@@ -44,7 +41,7 @@ void setup() {
 }
 
 // ================== FUNCIONES DAC ==================
-uint16_t voltageToDAC(float volts){
+uint16_t voltageToDAC(float volts){ //Ahorro de memoria respecto a int
   if(volts < 0) volts = 0;
   if(volts > VREF) volts = VREF;
   return (uint16_t)(volts / VREF * DAC_MAX);
@@ -62,25 +59,25 @@ void setIprog(float volts){
 
 // ================== Medidas ADC ==================
 float readVmon(){
-  int raw = analogRead(adcVmon);
-  return (raw / 4095.0) * VREF;
+  int adc = analogRead(adcVmon); //Función leer analogica de pin
+  return (adc / ADC_MAX) * VREF; //De analógica a digital
 }
 
 float readCurrent_uA(){
-  int raw = analogRead(adcI); //Función de Arduino para leer analogica de pin
-  float Vadc = (raw / 4095.0) * VREF;
+  int adc = analogRead(adcI); //Función leer analogica de pin
+  float Vadc = (adc / ADC_MAX) * VREF; //De analógica a digital
 
-  float Vshunt = Vadc / GAIN;
-  float I = Vshunt / R_SHUNT;
+  float Vshunt = Vadc / GAIN; //Elimina amplificación del AO
+  float I = Vshunt / R_SHUNT; //Ley de Ohm para Intesidad de fuga en R1
 
-  return I * 1e6;
+  return I * 1e6; //Devuelve microamperios
 }
 
 // ================== PRUEBAS ==================
 void pruebaZener(){
-  Serial.println("START_PRUEBA_1");
+  Serial.println("START_PRUEBA_1"); //Monitor serie para pruebas sin GUI
 
-  setVprog(0);
+  setVprog(0); //Asegurar fuente a 0
   setIprog(0);
   delay(200);
 
@@ -104,7 +101,7 @@ void pruebaZener(){
 void pruebaFugas(){
   Serial.println("START_PRUEBA_2");
 
-  setVprog(0);
+  setVprog(0); //Asegurar fuente a 0
   setIprog(0);
   delay(200);
 
