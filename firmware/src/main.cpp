@@ -2,148 +2,150 @@
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
-
-// ================== CONFIGURACIÓN I2C ==================
-#define SDA_PIN 20
-#define SCL_PIN 21
+// ================== I2C ==================
+#define SDA_PIN 8
+#define SCL_PIN 9
 
 // ================== DACs ==================
-Adafruit_MCP4725 dacV;   // Vprog
-Adafruit_MCP4725 dacI;   // Iprog
+Adafruit_MCP4725 dacV;
+Adafruit_MCP4725 dacI;
 
 // ================== PINES ==================
-const int adcVmon = 34;     // V mon (fuente)
-const int adcI = 35;     // I fugas (shunt)
-const int relePin = 26;    // Relé
+const int adcVmon = 1;
+const int adcI    = 2;
+const int relePin = 4;
 
 // ================== CONSTANTES ==================
-const float VREF = 3.3;     // ADC y DAC trabajan a 3.3V
-const float DAC_MAX = 4095.0; // DAC externo de 12 bits (4096 valores)
-const float ADC_MAX = 4095.0; // ADC del ESP32 de 12 bits (4096 valores)
-const float GAIN = 40.0; // Ganancia del amplificador de corriente
-const float R_SHUNT = 1000.0; // Shunt 1kΩ
+const float VREF      = 3.3f;
+const float DAC_MAX   = 4095.0f;
+const float ADC_MAX   = 4095.0f;
+const float GAIN      = 40.0f;
+const float R_SHUNT   = 1000.0f;
+
+// Escala ADC: el divisor resistivo lleva 0-75V → 0-3.3V
+const float VMON_SCALE = 16.07f;
+
+// ================== CONSIGNAS ==================
+// Vprog: escala fuente 0-5V → 0-75V, DAC sale 0-3.3V
+// Vprog (V) = V_salida_deseada / 75 * 5
+const float VPROG_ZENER       = 1.630f;  // → 24.0 V (ambos diodos)
+const float VPROG_FUGAS_GREEN = 1.326f;  // → 19.7 V
+const float VPROG_FUGAS_BLUE  = 1.421f;  // → 21.1 V
+const float IPROG             = 0.275f;  // mismo para todos
+
+// ================== ESTADO ==================
+int  currentTest = 0;
+bool testRunning = false;
 
 // ================== SETUP ==================
 void setup() {
   Serial.begin(115200);
+  delay(500);
 
-  // Inicializar I2C en pines definidos
+  //Inicializar I2C
   Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(100000);
 
-  // Inicializar DACs
-  dacV.begin(0x60); // A0 a GND
-  dacI.begin(0x61); // segundo DAC, A0 a VREF
+  dacV.begin(0x60);
+  dacI.begin(0x61);
+
+  dacV.setVoltage(0, false);
+  dacI.setVoltage(0, false);
 
   pinMode(relePin, OUTPUT);
   digitalWrite(relePin, LOW);
+  analogReadResolution(12);
 
   Serial.println("ESP32 listo");
 }
 
-// ================== FUNCIONES DAC ==================
-uint16_t voltageToDAC(float volts){ //Ahorro de memoria respecto a int
-  if(volts < 0) volts = 0;
-  if(volts > VREF) volts = VREF;
-  return (uint16_t)(volts / VREF * DAC_MAX);
+// ================== DAC ==================
+uint16_t voltageToDAC(float v) {
+  if (v < 0)    v = 0;
+  if (v > VREF) v = VREF;
+  return (uint16_t)(v / VREF * DAC_MAX);
+}
+void setVprog(float v) { dacV.setVoltage(voltageToDAC(v), false); }
+void setIprog(float v) { dacI.setVoltage(voltageToDAC(v), false); }
+
+// ================== ADC ==================
+float readVmon() {
+  float Vadc = (analogRead(adcVmon) / ADC_MAX) * VREF;
+  return Vadc * VMON_SCALE;   // devuelve voltios reales (0-75V)
+}
+float readIuA() {
+  float Vadc   = (analogRead(adcI) / ADC_MAX) * VREF;
+  float Vshunt = Vadc / GAIN;
+  return (Vshunt / R_SHUNT) * 1e6f;
 }
 
-void setVprog(float volts){
-  uint16_t value = voltageToDAC(volts);
-  dacV.setVoltage(value, false);
-}
-
-void setIprog(float volts){
-  uint16_t value = voltageToDAC(volts);
-  dacI.setVoltage(value, false);
-}
-
-// ================== Medidas ADC ==================
-float readVmon(){
-  int adc = analogRead(adcVmon); //Función leer analogica de pin
-  return (adc / ADC_MAX) * VREF; //De analógica a digital
-}
-
-float readCurrent_uA(){
-  int adc = analogRead(adcI); //Función leer analogica de pin
-  float Vadc = (adc / ADC_MAX) * VREF; //De analógica a digital
-
-  float Vshunt = Vadc / GAIN; //Elimina amplificación del AO
-  float I = Vshunt / R_SHUNT; //Ley de Ohm para Intesidad de fuga en R1
-
-  return I * 1e6; //Devuelve microamperios
-}
-
-// ================== PRUEBAS ==================
-void pruebaZener(){
-  Serial.println("START_PRUEBA_1"); //Monitor serie para pruebas sin GUI
-
-  setVprog(0); //Asegurar fuente a 0
+// ================== PARAR TODO ==================
+void stopAll() {
+  testRunning = false;
+  currentTest = 0;
+  setVprog(0);
   setIprog(0);
-  delay(200);
-
-  digitalWrite(relePin, HIGH);
-
-  // Ajustes (modo 3.3V → escala reducida)
-  setIprog(0.165);  // equivalente a 10mA escalado
-  setVprog(1.18);   // equivalente a 25V escalado
-
-  delay(200);
-
-  float Vmon = readVmon();
-
-  Serial.print("VZENER:");
-  Serial.println(Vmon);
-
   digitalWrite(relePin, LOW);
-  Serial.println("END_PRUEBA_1");
+  Serial.println("STOPPED");
 }
 
-void pruebaFugas(){
-  Serial.println("START_PRUEBA_2");
-
-  setVprog(0); //Asegurar fuente a 0
+// ================== INICIAR PRUEBA ==================
+// diode: 0 = verde, 1 = azul
+void startTest(int test, int diode) {
+  setVprog(0);
   setIprog(0);
-  delay(200);
+  delay(100);
 
-  digitalWrite(relePin, HIGH);
+  currentTest = test;
 
-  // Ajustes escalados
-  setIprog(0.495);   // 300mA escalado
-  setVprog(0.97);    // 19.4V escalado
+  if (test == 1) {
+    // Prueba Zener: 24V en ambos diodos, relé LOW
+    digitalWrite(relePin, LOW);
+    delay(50);
+    setIprog(IPROG);
+    setVprog(VPROG_ZENER);
+    Serial.println("TEST1_STARTED");
+  }
+  else if (test == 2) {
+    // Prueba Fugas: tensión según diodo, relé HIGH
+    digitalWrite(relePin, HIGH);
+    delay(50);
+    setIprog(IPROG);
+    float vp = (diode == 0) ? VPROG_FUGAS_GREEN : VPROG_FUGAS_BLUE;
+    setVprog(vp);
+    Serial.println("TEST2_STARTED");
+  }
 
-  delay(200);
-
-  float Vmon = readVmon();
-  float IuA = readCurrent_uA();
-
-  Serial.print("VMON:");
-  Serial.println(Vmon);
-
-  Serial.print("IFUGAS_uA:");
-  Serial.println(IuA);
-
-  digitalWrite(relePin, LOW);
-  Serial.println("END_PRUEBA_2");
+  testRunning = true;
 }
 
 // ================== LOOP ==================
-void loop(){
-  if(Serial.available()){
+void loop() {
+  if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
-
     cmd.trim();
 
-    if(cmd == "START_PRUEBA_1"){
-      pruebaZener();
+    if      (cmd == "START1_GREEN") startTest(1, 0);
+    else if (cmd == "START1_BLUE")  startTest(1, 1);
+    else if (cmd == "START2_GREEN") startTest(2, 0);
+    else if (cmd == "START2_BLUE")  startTest(2, 1);
+    else if (cmd == "STOP")         stopAll();
+  }
+
+  if (testRunning) {
+    if (currentTest == 1) {
+      float v = readVmon();
+      Serial.print("VOLT:");
+      Serial.println(v, 2);
     }
-    else if(cmd == "START_PRUEBA_2"){
-      pruebaFugas();
+    else if (currentTest == 2) {
+      float v = readVmon();
+      float i = readIuA();
+      Serial.print("VOLT:");
+      Serial.print(v, 2);
+      Serial.print(",I:");
+      Serial.println(i, 3);
     }
-    else if(cmd == "STOP"){
-      setVprog(0);
-      setIprog(0);
-      digitalWrite(relePin, LOW);
-      Serial.println("STOPPED");
-    }
+    delay(200);
   }
 }
