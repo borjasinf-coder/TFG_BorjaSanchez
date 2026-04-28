@@ -2,42 +2,39 @@
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
-// ================== I2C ==================
+// ======== Pines I2C ========
 #define SDA_PIN 8
 #define SCL_PIN 9
 
-// ================== DACs ==================
-Adafruit_MCP4725 dacV;
+// ======== DACs ========
+Adafruit_MCP4725 dacV; //Librería específica para los MCP4725
 Adafruit_MCP4725 dacI;
 
-// ================== PINES ==================
+// ======== Pines ESP32 ========
 const int adcVmon = 1;
 const int adcI    = 2;
 const int relePin = 4;
 
-// ================== CONSTANTES ==================
-const float VREF      = 3.3f;
-const float DAC_MAX   = 4095.0f;
+// ======== Constantes ========
+const float VREF      = 3.3f; //Float para ahorro de memoria
+const float DAC_MAX   = 4095.0f; //12 bits de los DACs/ADC
 const float ADC_MAX   = 4095.0f;
-const float GAIN      = 40.0f;
+const float GAIN      = 40.0f; //Ganancia AO
 const float R_SHUNT   = 1000.0f;
+const float VMON_SCALE = 16.07f;  // Escala ADC, 0-75V -> 0-5V (limitado a 3.3V)
 
-// Escala ADC: el divisor resistivo lleva 0-75V → 0-3.3V
-const float VMON_SCALE = 16.07f;
+// ======== Consignas analógicas ========
+//Escala fuente 0-5V -> 0-75V, Maximo 3.3V por el ESP32
+const float VPROG_ZENER       = 1.630f;  //  24.0 V (ambos diodos)
+const float VPROG_FUGAS_GREEN = 1.326f;  //  19.7 V
+const float VPROG_FUGAS_BLUE  = 1.421f;  //  21.1 V
+const float IPROG             = 0.275f;  // 100mA para limitar fuente
 
-// ================== CONSIGNAS ==================
-// Vprog: escala fuente 0-5V → 0-75V, DAC sale 0-3.3V
-// Vprog (V) = V_salida_deseada / 75 * 5
-const float VPROG_ZENER       = 1.630f;  // → 24.0 V (ambos diodos)
-const float VPROG_FUGAS_GREEN = 1.326f;  // → 19.7 V
-const float VPROG_FUGAS_BLUE  = 1.421f;  // → 21.1 V
-const float IPROG             = 0.275f;  // mismo para todos
-
-// ================== ESTADO ==================
+// ======== TestState ========
 int  currentTest = 0;
 bool testRunning = false;
 
-// ================== SETUP ==================
+// ======== Setup ========
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -46,40 +43,52 @@ void setup() {
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000);
 
+  //Direccionamiento DACs por I2C
   dacV.begin(0x60);
   dacI.begin(0x61);
-
+  
+  //Inicialización del sistema, normalizado a 0
   dacV.setVoltage(0, false);
   dacI.setVoltage(0, false);
 
   pinMode(relePin, OUTPUT);
   digitalWrite(relePin, LOW);
-  analogReadResolution(12);
+  analogReadResolution(12); //4095 niveles para ADC de 12 bits
 
   Serial.println("ESP32 listo");
 }
 
-// ================== DAC ==================
+// ======== Funciones DACs ========
 uint16_t voltageToDAC(float v) {
-  if (v < 0)    v = 0;
+  if (v < 0)    v = 0; //Valores seguros
   if (v > VREF) v = VREF;
-  return (uint16_t)(v / VREF * DAC_MAX);
+  return (uint16_t)(v / VREF * DAC_MAX); //Escalado
 }
-void setVprog(float v) { dacV.setVoltage(voltageToDAC(v), false); }
-void setIprog(float v) { dacI.setVoltage(voltageToDAC(v), false); }
 
-// ================== ADC ==================
+//Salidas analógicas para fuente
+void setVprog(float v) { 
+  dacV.setVoltage(voltageToDAC(v), false); 
+}
+
+void setIprog(float v) { 
+  dacI.setVoltage(voltageToDAC(v), false); 
+}
+
+// ======== Funciones ADC ========
+//Vmon desde fuente
 float readVmon() {
   float Vadc = (analogRead(adcVmon) / ADC_MAX) * VREF;
-  return Vadc * VMON_SCALE;   // devuelve voltios reales (0-75V)
-}
-float readIuA() {
-  float Vadc   = (analogRead(adcI) / ADC_MAX) * VREF;
-  float Vshunt = Vadc / GAIN;
-  return (Vshunt / R_SHUNT) * 1e6f;
+  return Vadc * VMON_SCALE;
 }
 
-// ================== PARAR TODO ==================
+//Ir, fugas desde circuito amplificador
+float readIr() {
+  float Vadc   = (analogRead(adcI) / ADC_MAX) * VREF;
+  float Vshunt = Vadc / GAIN;
+  return (Vshunt / R_SHUNT) * 1e6f; //Amperios a microamperios
+}
+
+// ======== StopTest ========
 void stopAll() {
   testRunning = false;
   currentTest = 0;
@@ -89,9 +98,10 @@ void stopAll() {
   Serial.println("STOPPED");
 }
 
-// ================== INICIAR PRUEBA ==================
-// diode: 0 = verde, 1 = azul
+// ======== StartTest ========
+// 0 = diodo verde, 1 = diodo azul
 void startTest(int test, int diode) {
+  //Aseguramos fuente en reposo 
   setVprog(0);
   setIprog(0);
   delay(100);
@@ -99,7 +109,7 @@ void startTest(int test, int diode) {
   currentTest = test;
 
   if (test == 1) {
-    // Prueba Zener: 24V en ambos diodos, relé LOW
+    //Prueba tensión Zener: 24V en ambos diodos, relé LOW
     digitalWrite(relePin, LOW);
     delay(50);
     setIprog(IPROG);
@@ -107,24 +117,30 @@ void startTest(int test, int diode) {
     Serial.println("TEST1_STARTED");
   }
   else if (test == 2) {
-    // Prueba Fugas: tensión según diodo, relé HIGH
+    //Prueba corriente de fugas: tensión Zener - 1.3V, relé HIGH
     digitalWrite(relePin, HIGH);
     delay(50);
     setIprog(IPROG);
-    float vp = (diode == 0) ? VPROG_FUGAS_GREEN : VPROG_FUGAS_BLUE;
-    setVprog(vp);
+    float vprog;
+    if (diode == 0) {
+        vprog = VPROG_FUGAS_GREEN;
+    } else {
+        vprog = VPROG_FUGAS_BLUE;
+    }
+    setVprog(vprog);
     Serial.println("TEST2_STARTED");
   }
 
   testRunning = true;
 }
 
-// ================== LOOP ==================
+// ======== Loop ========
 void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
 
+    //Comunicación serie para la GUI 
     if      (cmd == "START1_GREEN") startTest(1, 0);
     else if (cmd == "START1_BLUE")  startTest(1, 1);
     else if (cmd == "START2_GREEN") startTest(2, 0);
@@ -132,6 +148,7 @@ void loop() {
     else if (cmd == "STOP")         stopAll();
   }
 
+  //Print de resultados
   if (testRunning) {
     if (currentTest == 1) {
       float v = readVmon();
@@ -140,7 +157,7 @@ void loop() {
     }
     else if (currentTest == 2) {
       float v = readVmon();
-      float i = readIuA();
+      float i = readIr();
       Serial.print("VOLT:");
       Serial.print(v, 2);
       Serial.print(",I:");
