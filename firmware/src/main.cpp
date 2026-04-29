@@ -2,15 +2,23 @@
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
+// TFG Desarrollo de aplicaciones electrónicas. Borja Sánchez Rodríguez.
+// Código del firmware para el ESP32. 
+// Control lógico de todo el sistema con comunicación serie con la GUI en Python.
+// Se implementan las funciones para los test de tensión Zener y corriente de fugas.
+
 // ======== Pines I2C ========
+// Configurados los pines de datos y reloj para el bus I2C.
 #define SDA_PIN 8
 #define SCL_PIN 9
 
 // ======== DACs ========
-Adafruit_MCP4725 dacV; //Librería específica para los MCP4725
+//Librería específica para los MCP4725
+Adafruit_MCP4725 dacV; 
 Adafruit_MCP4725 dacI;
 
 // ======== Pines ESP32 ========
+// Pines físicos de la placa
 const int adcVmon = 1;
 const int adcI    = 2;
 const int relePin = 4;
@@ -24,22 +32,25 @@ const float R_SHUNT   = 1000.0f;
 const float VMON_SCALE = 16.07f;  // Escala ADC, 0-75V -> 0-5V (limitado a 3.3V)
 
 // ======== Consignas analógicas ========
-//Escala fuente 0-5V -> 0-75V, Maximo 3.3V por el ESP32
+// Escalas de las consignas para la fuente de alimentación.
+// Escala fuente 0-5V -> 0-75V, Maximo 3.3V por el ESP32
 const float VPROG_ZENER       = 1.630f;  //  24.0 V (ambos diodos)
 const float VPROG_FUGAS_GREEN = 1.326f;  //  19.7 V
 const float VPROG_FUGAS_BLUE  = 1.421f;  //  21.1 V
 const float IPROG             = 0.275f;  // 100mA para limitar fuente
 
 // ======== TestState ========
+// Variables para comprobar e inicializar el estado del test para poder comenzar o parar pruebas.
 int  currentTest = 0;
 bool testRunning = false;
 
 // ======== Setup ========
+// Setup del controlador, periféricos y estado inciial del sistema.
 void setup() {
   Serial.begin(115200);
   delay(500);
 
-  //Inicializar I2C
+  //Inicializar bus I2C
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000);
 
@@ -51,6 +62,7 @@ void setup() {
   dacV.setVoltage(0, false);
   dacI.setVoltage(0, false);
 
+  // Relé en reposo
   pinMode(relePin, OUTPUT);
   digitalWrite(relePin, LOW);
   analogReadResolution(12); //4095 niveles para ADC de 12 bits
@@ -59,13 +71,14 @@ void setup() {
 }
 
 // ======== Funciones DACs ========
+// Función para el escalado del voltaje de consigna.
 uint16_t voltageToDAC(float v) {
   if (v < 0)    v = 0; //Valores seguros
   if (v > VREF) v = VREF;
   return (uint16_t)(v / VREF * DAC_MAX); //Escalado
 }
 
-//Salidas analógicas para fuente
+// Salidas analógicas para fuente
 void setVprog(float v) { 
   dacV.setVoltage(voltageToDAC(v), false); 
 }
@@ -75,13 +88,14 @@ void setIprog(float v) {
 }
 
 // ======== Funciones ADC ========
-//Vmon desde fuente
+// Funciones para el escalado de las lectuas de los ADC.
+// Vmon desde fuente
 float readVmon() {
   float Vadc = (analogRead(adcVmon) / ADC_MAX) * VREF;
   return Vadc * VMON_SCALE;
 }
 
-//Ir, fugas desde circuito amplificador
+// Ir, fugas desde circuito amplificador
 float readIr() {
   float Vadc   = (analogRead(adcI) / ADC_MAX) * VREF;
   float Vshunt = Vadc / GAIN;
@@ -89,6 +103,7 @@ float readIr() {
 }
 
 // ======== StopTest ========
+// Función para detener las pruebas.
 void stopAll() {
   testRunning = false;
   currentTest = 0;
@@ -99,6 +114,7 @@ void stopAll() {
 }
 
 // ======== StartTest ========
+// Función para inciiar el test seleccionado.
 // 0 = diodo verde, 1 = diodo azul
 void startTest(int test, int diode) {
   //Aseguramos fuente en reposo 
@@ -109,7 +125,7 @@ void startTest(int test, int diode) {
   currentTest = test;
 
   if (test == 1) {
-    //Prueba tensión Zener: 24V en ambos diodos, relé LOW
+    // Prueba tensión Zener: 24V en ambos diodos, relé LOW
     digitalWrite(relePin, LOW);
     delay(50);
     setIprog(IPROG);
@@ -117,7 +133,7 @@ void startTest(int test, int diode) {
     Serial.println("TEST1_STARTED");
   }
   else if (test == 2) {
-    //Prueba corriente de fugas: tensión Zener - 1.3V, relé HIGH
+    // Prueba corriente de fugas: tensión Zener - 1.3V, relé HIGH
     digitalWrite(relePin, HIGH);
     delay(50);
     setIprog(IPROG);
@@ -135,12 +151,14 @@ void startTest(int test, int diode) {
 }
 
 // ======== Loop ========
+// Loop principal del firmware.
+// Encargado de la lectura/escritura de los prompt de la comunicación serie.
 void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
 
-    //Comunicación serie para la GUI 
+    // Comunicación serie para la GUI 
     if      (cmd == "START1_GREEN") startTest(1, 0);
     else if (cmd == "START1_BLUE")  startTest(1, 1);
     else if (cmd == "START2_GREEN") startTest(2, 0);
@@ -148,7 +166,7 @@ void loop() {
     else if (cmd == "STOP")         stopAll();
   }
 
-  //Print de resultados
+  // Print de resultados
   if (testRunning) {
     if (currentTest == 1) {
       float v = readVmon();
