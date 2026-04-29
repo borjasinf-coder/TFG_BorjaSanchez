@@ -14,8 +14,8 @@ Firmware para ESP32-S3 DevKitC con interfaz gráfica por serie en Python.
 - VS Code + extensión PlatformIO
 - Python 3.14.3
 
-## Librearías de Python necesarias para la ejecución del script
+## Librerías de Python necesarias para la ejecución del script
 pip install -r python/requirements.txt
 
-## Microcontroaldor utilizado
+## Microcontrolador utilizado
 ESP32-S3-DevKitC-1

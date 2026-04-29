@@ -8,6 +8,7 @@ python/venv/
 python/.env
 
 # VS Code (el workspace sí se sube, esto es solo configuración local)
+*.code-workspace
 .vscode/
 
 # Sistema operativo
