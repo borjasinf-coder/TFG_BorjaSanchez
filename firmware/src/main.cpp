@@ -19,9 +19,9 @@ Adafruit_MCP4725 dacI;
 
 // ======== Pines ESP32 ========
 // Pines físicos de la placa
-const int adcVmon = 1;
-const int adcI    = 2;
-const int relePin = 4;
+const int PIN_ADC_VMON = 1;
+const int PIN_ADC_I    = 2;
+const int PIN_RELE     = 4;
 
 // ======== Constantes ========
 const float VREF      = 3.3f; //Float para ahorro de memoria
@@ -44,7 +44,7 @@ const float IPROG             = 0.275f;  // 100mA para limitar fuente
 int  currentTest = 0;
 bool testRunning = false;
 
-// ======== Setup ========
+// ======== Inicialización del sistema ========
 // Setup del controlador, periféricos y estado inciial del sistema.
 void setup() {
   Serial.begin(115200);
@@ -63,8 +63,8 @@ void setup() {
   dacI.setVoltage(0, false);
 
   // Relé en reposo
-  pinMode(relePin, OUTPUT);
-  digitalWrite(relePin, LOW);
+  pinMode(PIN_RELE, OUTPUT);
+  digitalWrite(PIN_RELE, LOW);
   analogReadResolution(12); //4095 niveles para ADC de 12 bits
 
   Serial.println("ESP32 listo");
@@ -91,13 +91,13 @@ void setIprog(float v) {
 // Funciones para el escalado de las lectuas de los ADC.
 // Vmon desde fuente
 float readVmon() {
-  float Vadc = (analogRead(adcVmon) / ADC_MAX) * VREF;
+  float Vadc = (analogRead(PIN_ADC_VMON) / ADC_MAX) * VREF;
   return Vadc * VMON_SCALE;
 }
 
 // Ir, fugas desde circuito amplificador
 float readIr() {
-  float Vadc   = (analogRead(adcI) / ADC_MAX) * VREF;
+  float Vadc   = (analogRead(PIN_ADC_I) / ADC_MAX) * VREF;
   float Vshunt = Vadc / GAIN;
   return (Vshunt / R_SHUNT) * 1e6f; //Amperios a microamperios
 }
@@ -109,7 +109,7 @@ void stopAll() {
   currentTest = 0;
   setVprog(0);
   setIprog(0);
-  digitalWrite(relePin, LOW);
+  digitalWrite(PIN_RELE, LOW);
   Serial.println("STOPPED");
 }
 
@@ -126,7 +126,7 @@ void startTest(int test, int diode) {
 
   if (test == 1) {
     // Prueba tensión Zener: 24V en ambos diodos, relé LOW
-    digitalWrite(relePin, LOW);
+    digitalWrite(PIN_RELE, LOW);
     delay(50);
     setIprog(IPROG);
     setVprog(VPROG_ZENER);
@@ -134,7 +134,7 @@ void startTest(int test, int diode) {
   }
   else if (test == 2) {
     // Prueba corriente de fugas: tensión Zener - 1.3V, relé HIGH
-    digitalWrite(relePin, HIGH);
+    digitalWrite(PIN_RELE, HIGH);
     delay(50);
     setIprog(IPROG);
     float vprog;
@@ -150,7 +150,7 @@ void startTest(int test, int diode) {
   testRunning = true;
 }
 
-// ======== Loop ========
+// ======== Bucle principal ========
 // Loop principal del firmware.
 // Encargado de la lectura/escritura de los prompt de la comunicación serie.
 void loop() {
